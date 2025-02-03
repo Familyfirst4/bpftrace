@@ -1,7 +1,8 @@
 #include "usdt.h"
 #include "log.h"
+#include "utils.h"
 
-#include <signal.h>
+#include <csignal>
 
 #include <algorithm>
 #include <iostream>
@@ -35,11 +36,7 @@ static void usdt_probe_each(struct bcc_usdt *usdt_probe)
           .path = usdt_probe->bin_path,
           .provider = usdt_probe->provider,
           .name = usdt_probe->name,
-#ifdef LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE
           .semaphore_offset = usdt_probe->semaphore_offset,
-#else
-          .semaphore_offset = 0,
-#endif
           .num_locations = usdt_probe->num_locations,
       });
   current_pid_paths.emplace(usdt_probe->bin_path);
@@ -61,18 +58,14 @@ std::optional<usdt_probe_entry> USDTHelper::find(int pid,
                                                  const std::string &name)
 {
   usdt_probe_list probes;
-  if (pid > 0)
-  {
+  if (pid > 0) {
     read_probes_for_pid(pid);
-    for (auto const &path : usdt_pid_to_paths_cache[pid])
-    {
+    for (auto const &path : usdt_pid_to_paths_cache[pid]) {
       probes.insert(probes.end(),
                     usdt_provider_cache[path][provider].begin(),
                     usdt_provider_cache[path][provider].end());
     }
-  }
-  else
-  {
+  } else {
     read_probes_for_path(target);
     probes = usdt_provider_cache[target][provider];
   }
@@ -82,28 +75,34 @@ std::optional<usdt_probe_entry> USDTHelper::find(int pid,
                          [&name](const usdt_probe_entry &e) {
                            return e.name == name;
                          });
-  if (it != probes.end())
-  {
+  if (it != probes.end()) {
     return *it;
-  }
-  else
-  {
+  } else {
     return std::nullopt;
   }
 }
 
-usdt_probe_list USDTHelper::probes_for_pid(int pid)
+usdt_probe_list USDTHelper::probes_for_pid(int pid, bool print_error)
 {
-  read_probes_for_pid(pid);
+  read_probes_for_pid(pid, print_error);
 
   usdt_probe_list probes;
-  for (auto const &path : usdt_pid_to_paths_cache[pid])
-  {
-    for (auto const &usdt_probes : usdt_provider_cache[path])
-    {
+  for (auto const &path : usdt_pid_to_paths_cache[pid]) {
+    for (auto const &usdt_probes : usdt_provider_cache[path]) {
       probes.insert(probes.end(),
                     usdt_probes.second.begin(),
                     usdt_probes.second.end());
+    }
+  }
+  return probes;
+}
+
+usdt_probe_list USDTHelper::probes_for_all_pids()
+{
+  usdt_probe_list probes;
+  for (int pid : bpftrace::get_all_running_pids()) {
+    for (auto &probe : probes_for_pid(pid, false)) {
+      probes.push_back(std::move(probe));
     }
   }
   return probes;
@@ -114,8 +113,7 @@ usdt_probe_list USDTHelper::probes_for_path(const std::string &path)
   read_probes_for_path(path);
 
   usdt_probe_list probes;
-  for (auto const &usdt_probes : usdt_provider_cache[path])
-  {
+  for (auto const &usdt_probes : usdt_provider_cache[path]) {
     probes.insert(probes.end(),
                   usdt_probes.second.begin(),
                   usdt_probes.second.end());
@@ -123,20 +121,20 @@ usdt_probe_list USDTHelper::probes_for_path(const std::string &path)
   return probes;
 }
 
-void USDTHelper::read_probes_for_pid(int pid)
+void USDTHelper::read_probes_for_pid(int pid, bool print_error)
 {
   if (pid_cache.count(pid))
     return;
 
-  if (pid > 0)
-  {
+  if (pid > 0) {
     void *ctx = bcc_usdt_new_frompid(pid, nullptr);
-    if (ctx == nullptr)
-    {
-      LOG(ERROR) << "failed to initialize usdt context for pid: " << pid;
+    if (ctx == nullptr) {
+      if (print_error) {
+        LOG(ERROR) << "failed to initialize usdt context for pid: " << pid;
 
-      if (kill(pid, 0) == -1 && errno == ESRCH)
-        LOG(ERROR) << "hint: process not running";
+        if (kill(pid, 0) == -1 && errno == ESRCH)
+          LOG(ERROR) << "hint: process not running";
+      }
 
       return;
     }
@@ -145,9 +143,7 @@ void USDTHelper::read_probes_for_pid(int pid)
     cache_current_pid_paths(pid);
 
     pid_cache.emplace(pid);
-  }
-  else
-  {
+  } else {
     LOG(ERROR) << "a pid must be specified to list USDT probes by PID";
   }
 }
@@ -158,8 +154,7 @@ void USDTHelper::read_probes_for_path(const std::string &path)
     return;
 
   void *ctx = bcc_usdt_new_frompath(path.c_str());
-  if (ctx == nullptr)
-  {
+  if (ctx == nullptr) {
     LOG(ERROR) << "failed to initialize usdt context for path " << path;
     return;
   }

@@ -5,6 +5,8 @@
 #  LIBBPF_INCLUDE_DIRS - the libbpf include directory
 #  LIBBPF_LIBRARIES - Link these to use libbpf
 #  LIBBPF_DEFINITIONS - Compiler switches required for using libbpf
+#  LIBBPF_VERSION_MAJOR - Libbpf major version
+#  LIBBPF_VERSION_MINOR - Libbpf minor version
 
 #if (LIBBPF_LIBRARIES AND LIBBPF_INCLUDE_DIRS)
 #  set (LibBpf_FIND_QUIETLY TRUE)
@@ -24,61 +26,33 @@ find_library (LIBBPF_LIBRARIES
   PATHS
     ENV LIBRARY_PATH
     ENV LD_LIBRARY_PATH)
+set(LIBBPF_ERROR_MESSAGE "Please install the libbpf development package")
 
 include (FindPackageHandleStandardArgs)
 
 # handle the QUIETLY and REQUIRED arguments and set LIBBPF_FOUND to TRUE if all listed variables are TRUE
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(LibBpf "Please install the libbpf development package"
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(LibBpf ${LIBBPF_ERROR_MESSAGE}
   LIBBPF_LIBRARIES
   LIBBPF_INCLUDE_DIRS)
 
-mark_as_advanced(LIBBPF_INCLUDE_DIRS LIBBPF_LIBRARIES)
+# Parse version information out of libbpf_version.h
+if(EXISTS "${LIBBPF_INCLUDE_DIRS}/bpf/libbpf_version.h")
+  file(READ "${LIBBPF_INCLUDE_DIRS}/bpf/libbpf_version.h" version_header)
+  string(REGEX MATCH "LIBBPF_MAJOR_VERSION[ \t]+([0-9]+)" major_match "${version_header}")
+  string(REGEX MATCH "LIBBPF_MINOR_VERSION[ \t]+([0-9]+)" minor_match "${version_header}")
+  string(REGEX REPLACE "LIBBPF_MAJOR_VERSION[ \t]+" "" LIBBPF_VERSION_MAJOR "${major_match}")
+  string(REGEX REPLACE "LIBBPF_MINOR_VERSION[ \t]+" "" LIBBPF_VERSION_MINOR "${minor_match}")
+else()
+  set(LIBBPF_VERSION_MAJOR 0)
+  set(LIBBPF_VERSION_MINOR 0)
+  message(SEND_ERROR "Libbpf version is too old and does not have libbpf_version.h, which was introduced in v0.6")
+endif()
 
-# We need btf_dump support, set LIBBPF_BTF_DUMP_FOUND
-# when it's found.
-if (KERNEL_INCLUDE_DIRS)
-  set(INCLUDE_KERNEL -isystem ${KERNEL_INCLUDE_DIRS})
-endif ()
-include(CheckSymbolExists)
-# adding also elf for static build check
-SET(CMAKE_REQUIRED_LIBRARIES ${LIBBPF_LIBRARIES} elf z)
-# libbpf quirk, needs upstream fix
-SET(CMAKE_REQUIRED_DEFINITIONS -include stdbool.h ${INCLUDE_KERNEL})
-check_symbol_exists(btf_dump__new "${LIBBPF_INCLUDE_DIRS}/bpf/btf.h" HAVE_BTF_DUMP)
-if (HAVE_BTF_DUMP)
-  set(LIBBPF_BTF_DUMP_FOUND TRUE)
-endif ()
-check_symbol_exists(btf_dump__emit_type_decl "${LIBBPF_INCLUDE_DIRS}/bpf/btf.h" HAVE_LIBBPF_BTF_DUMP_EMIT_TYPE_DECL)
-
-check_symbol_exists(bpf_prog_load "${LIBBPF_INCLUDE_DIRS}/bpf/bpf.h" HAVE_LIBBPF_BPF_PROG_LOAD)
-check_symbol_exists(bpf_map_create "${LIBBPF_INCLUDE_DIRS}/bpf/bpf.h" HAVE_LIBBPF_BPF_MAP_CREATE)
-check_symbol_exists(bpf_map_lookup_batch "${LIBBPF_INCLUDE_DIRS}/bpf/bpf.h" HAVE_LIBBPF_MAP_BATCH)
-check_symbol_exists(bpf_link_create "${LIBBPF_INCLUDE_DIRS}/bpf/bpf.h" HAVE_LIBBPF_LINK_CREATE)
-SET(CMAKE_REQUIRED_DEFINITIONS)
-SET(CMAKE_REQUIRED_LIBRARIES)
+mark_as_advanced(LIBBPF_INCLUDE_DIRS LIBBPF_LIBRARIES LIBBPF_VERSION_MAJOR LIBBPF_VERSION_MINOR)
 
 INCLUDE(CheckCXXSourceCompiles)
 SET(CMAKE_REQUIRED_INCLUDES ${LIBBPF_INCLUDE_DIRS})
 SET(CMAKE_REQUIRED_LIBRARIES ${LIBBPF_LIBRARIES} elf z)
-CHECK_CXX_SOURCE_COMPILES("
-#include <bpf/btf.h>
-
-int main(void) {
-  btf__type_cnt(NULL);
-  return 0;
-}
-" HAVE_LIBBPF_BTF_TYPE_CNT)
-
-CHECK_CXX_SOURCE_COMPILES("
-#include <bpf/btf.h>
-
-int main(void) {
-  const struct btf_dump_opts *opts = (const struct btf_dump_opts*) 1;
-
-  btf_dump__new(NULL, NULL, NULL, opts);
-  return 0;
-}
-" HAVE_LIBBPF_BTF_DUMP_NEW_V0_6_0)
 
 CHECK_CXX_SOURCE_COMPILES("
 #include <bpf/bpf.h>
@@ -86,9 +60,9 @@ CHECK_CXX_SOURCE_COMPILES("
 int main(void) {
   DECLARE_LIBBPF_OPTS(bpf_link_create_opts, opts);
 
-  opts.kprobe_multi.syms = NULL;
+  opts.uprobe_multi.flags = 0;
   return 0;
 }
-" HAVE_LIBBPF_KPROBE_MULTI)
+" HAVE_LIBBPF_UPROBE_MULTI)
 SET(CMAKE_REQUIRED_INCLUDES)
 SET(CMAKE_REQUIRED_LIBRARIES)

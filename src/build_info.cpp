@@ -1,6 +1,9 @@
+#include <llvm/Config/llvm-config.h>
 #include <sstream>
 
 #include "build_info.h"
+
+#include "version.h"
 
 namespace bpftrace {
 
@@ -12,71 +15,20 @@ std::string BuildInfo::report()
       << "  version: " << BPFTRACE_VERSION << std::endl
       << "  LLVM: " << LLVM_VERSION_MAJOR << "." << LLVM_VERSION_MINOR << "."
       << LLVM_VERSION_PATCH << std::endl
-#ifdef LLVM_ORC_V2
-      << "  ORC: v2" << std::endl
-#endif
-      << "  foreach_sym: "
-#ifdef HAVE_BCC_ELF_FOREACH_SYM
-      << "yes" << std::endl
-#else
-      << "no" << std::endl
-#endif
-      << "  unsafe uprobe: "
-#ifdef HAVE_UNSAFE_UPROBE
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
-  buf << "  bfd: "
+      << "  bfd: "
 #ifdef HAVE_BFD_DISASM
       << "yes" << std::endl;
 #else
       << "no" << std::endl;
 #endif
-  buf << "  bcc_usdt_addsem: "
-#ifdef HAVE_BCC_USDT_ADDSEM
+  buf << "  liblldb (DWARF support): "
+#ifdef HAVE_LIBLLDB
       << "yes" << std::endl;
 #else
       << "no" << std::endl;
 #endif
-  buf << "  bcc bpf_attach_uprobe refcount: "
-#ifdef LIBBCC_ATTACH_UPROBE_SEVEN_ARGS_SIGNATURE
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
-  buf << "  bcc library path resolution: "
-#ifdef HAVE_BCC_WHICH_SO
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
-  buf << "  libbpf btf dump: "
-#ifdef HAVE_LIBBPF_BTF_DUMP
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
-  buf << "  libbpf btf dump type decl: "
-#ifdef HAVE_LIBBPF_BTF_DUMP_EMIT_TYPE_DECL
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
-  buf << "  libbpf bpf_prog_load: "
-#ifdef HAVE_LIBBPF_BPF_PROG_LOAD
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
-  buf << "  libbpf bpf_map_create: "
-#ifdef HAVE_LIBBPF_BPF_MAP_CREATE
-      << "yes" << std::endl;
-#else
-      << "no" << std::endl;
-#endif
-  buf << "  libdw (DWARF support): "
-#ifdef HAVE_LIBDW
+  buf << "  libsystemd (systemd notify support): "
+#ifdef HAVE_LIBSYSTEMD
       << "yes" << std::endl;
 #else
       << "no" << std::endl;

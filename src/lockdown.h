@@ -7,15 +7,14 @@
 namespace bpftrace {
 namespace lockdown {
 
-enum class LockdownState
-{
+enum class LockdownState {
   None,
   Integrity,
   Confidentiality,
   Unknown, // Could not determine whether lockdown is enabled or not
 };
 
-LockdownState detect(std::unique_ptr<BPFfeature> &feature);
+LockdownState detect();
 void emit_warning(std::ostream &out);
 
 } //  namespace lockdown

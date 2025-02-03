@@ -22,6 +22,7 @@ const std::unordered_map<std::string, Type> printf_format_types = {
   {"s", Type::string},
   {"r", Type::buffer},
   {"rx", Type::buffer},
+  {"rh", Type::buffer},
   {"c", Type::integer},
   {"d", Type::integer},
   {"u", Type::integer},
@@ -71,6 +72,22 @@ const std::unordered_map<std::string, Type> printf_format_types = {
   {"tx", Type::integer},
   {"tX", Type::integer},
   {"tp", Type::integer}
+};
+
+// bpf_trace_printk_format_types is a subset of printf_format_types that contains valid types for bpf_trace_printk()
+// see iovisor/bcc BTypeVisitor::checkFormatSpecifiers
+const std::unordered_map<std::string, Type> bpf_trace_printk_format_types = {
+    {"d", Type::integer},
+    {"u", Type::integer},
+    {"x", Type::integer},
+    {"ld", Type::integer},
+    {"lu", Type::integer},
+    {"lx", Type::integer},
+    {"lld", Type::integer},
+    {"llu", Type::integer},
+    {"llx", Type::integer},
+    {"p", Type::integer},
+    {"s", Type::string}
 };
 
 // clang-format on

@@ -17,7 +17,7 @@ if [[ "$#" -lt 3 ]]; then
   echo "$(basename $0) <bpftrace_A> <bpftrace_B> <tooldir> [<testmode>] [<threshold>]"
   echo ""
   echo "EXAMPLE:"
-  echo "$(basename $0) bpftrace bpftrace_master /vagrant/tools"
+  echo "$(basename $0) bpftrace bpftrace_master ./tools"
   echo ""
   echo "NOTE: assume that second bpftrace binary is newer"
   exit 1
@@ -36,7 +36,7 @@ cd $TMPDIR
 set +e
 
 TESTMODE=${4:-codegen}
-if [[ $TESTMODE != "codegen" && $TESTMODE != "semantic" ]]; then
+if [[ $TESTMODE != "codegen" ]]; then
     echo invalid testmode: $TESTMODE
     exit 20
 fi

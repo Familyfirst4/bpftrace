@@ -9,13 +9,7 @@
 
 namespace bpftrace {
 
-const std::string kprobe_path =
-    "/sys/kernel/debug/tracing/available_filter_functions";
-const std::string tp_avail_path = "/sys/kernel/debug/tracing/available_events";
-const std::string tp_path = "/sys/kernel/debug/tracing/events";
-
-struct ProbeListItem
-{
+struct ProbeListItem {
   std::string path;
   std::string alias;
   uint32_t type;
@@ -51,12 +45,15 @@ const std::vector<ProbeListItem> HW_PROBE_LIST = {
 };
 // clang-format on
 
+const std::unordered_set<std::string> TIME_UNITS = { "s", "ms", "us", "hz" };
+
+const std::unordered_set<std::string> SIGNALS = { "SIGUSR1" };
+
 class BPFtrace;
 
 typedef std::map<std::string, std::vector<std::string>> FuncParamLists;
 
-class ProbeMatcher
-{
+class ProbeMatcher {
 public:
   explicit ProbeMatcher(BPFtrace *bpftrace) : bpftrace_(bpftrace)
   {
@@ -88,25 +85,32 @@ public:
 
 private:
   std::set<std::string> get_matches_in_stream(const std::string &search_input,
-                                              bool ignore_trailing_module,
                                               std::istream &symbol_stream,
+                                              bool demangle_symbols = true,
                                               const char delim = '\n');
   std::set<std::string> get_matches_for_probetype(
       const ProbeType &probe_type,
       const std::string &target,
-      const std::string &search_input);
+      const std::string &search_input,
+      bool demangle_symbols);
   std::set<std::string> get_matches_in_set(const std::string &search_input,
                                            const std::set<std::string> &set);
 
+  virtual std::unique_ptr<std::istream> get_symbols_from_traceable_funcs(
+      bool with_modules = false) const;
   virtual std::unique_ptr<std::istream> get_symbols_from_file(
       const std::string &path) const;
   virtual std::unique_ptr<std::istream> get_func_symbols_from_file(
+      int pid,
       const std::string &path) const;
   virtual std::unique_ptr<std::istream> get_symbols_from_usdt(
       int pid,
       const std::string &target) const;
   virtual std::unique_ptr<std::istream> get_symbols_from_list(
       const std::vector<ProbeListItem> &probes_list) const;
+
+  virtual std::unique_ptr<std::istream> adjust_rawtracepoint(
+      std::istream &symbol_list) const;
 
   std::unique_ptr<std::istream> get_iter_symbols(void) const;
 
