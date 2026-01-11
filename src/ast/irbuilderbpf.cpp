@@ -149,8 +149,36 @@ StructType *IRBuilderBPF::GetStackStructType(const StackType &stack_type)
   }
   // If the offset changes, make sure to also change the codegen for "stack_len"
   elements.emplace_back(getInt64Ty()); // nr_stack_frames
-  elements.emplace_back(
-      ArrayType::get(getInt64Ty(), stack_type.limit)); // stack of addresses
+
+  if (stack_type.mode == StackMode::build_id) {
+    // struct bpf_stack_build_id {
+    //   __s32		status;
+    //   unsigned char	build_id[BPF_BUILD_ID_SIZE];
+    //   union {
+    //     __u64	offset;
+    //     __u64	ip;
+    //   };
+    // };
+    std::vector<llvm::Type *> union_elem = {
+      getInt64Ty(),
+    };
+    StructType *union_type = GetStructType("offset_ip_union",
+                                           union_elem,
+                                           false);
+
+    std::vector<llvm::Type *> build_id_elements = {
+      getInt32Ty(), // status
+      ArrayType::get(getInt8Ty(),
+                     BPF_BUILD_ID_SIZE), // build_id[BPF_BUILD_ID_SIZE]
+      union_type,
+    };
+    StructType *stack_build_id = GetStructType("stack_build_id",
+                                               build_id_elements,
+                                               false);
+    elements.emplace_back(ArrayType::get(stack_build_id, stack_type.limit));
+  } else {
+    elements.emplace_back(ArrayType::get(getInt64Ty(), stack_type.limit));
+  }
 
   return GetStructType(stack_type.name(), elements, false);
 }
@@ -523,13 +551,6 @@ CallInst *IRBuilderBPF::createPerCpuMapLookup(const std::string &map_name,
   return createCall(lookup_func_type, lookup_func, { map_ptr, key, cpu }, name);
 }
 
-CallInst *IRBuilderBPF::CreateGetJoinMap(BasicBlock *failure_callback,
-                                         const Location &loc)
-{
-  return createGetScratchMap(
-      to_string(MapType::Join), "join", loc, failure_callback);
-}
-
 Value *IRBuilderBPF::CreateGetStrAllocation(const std::string &name,
                                             const Location &loc,
                                             uint64_t pad)
@@ -575,6 +596,11 @@ Value *IRBuilderBPF::CreateCallStackAllocation(const SizedType &stack_type,
                           [](AsyncIds &async_ids) {
                             return async_ids.call_stack();
                           });
+}
+
+Value *IRBuilderBPF::CreateJoinAllocation(const Location &loc)
+{
+  return createScratchBuffer(bpftrace::globalvars::JOIN_BUFFER, loc, 0);
 }
 
 Value *IRBuilderBPF::CreateReadMapValueAllocation(const SizedType &value_type,
@@ -698,59 +724,6 @@ Value *IRBuilderBPF::createScratchBuffer(std::string_view global_var_name,
   return CreateGEP(GetType(sized_type),
                    module_.getGlobalVariable(global_name),
                    { getInt64(0), bounded_cpu_id, getInt64(key) });
-}
-
-// Failure to lookup a scratch map will result in a jump to the
-// failure_callback, if non-null.
-//
-// In practice, a properly constructed percpu lookup will never fail. The only
-// way it can fail is if we have a bug in our code. So a null failure_callback
-// simply causes a blind 0 return. See comment in function for why this is ok.
-CallInst *IRBuilderBPF::createGetScratchMap(const std::string &map_name,
-                                            const std::string &name,
-                                            const Location &loc,
-                                            BasicBlock *failure_callback,
-                                            int key)
-{
-  AllocaInst *keyAlloc = CreateAllocaBPF(getInt32Ty(),
-                                         "lookup_" + name + "_key");
-  CreateStore(getInt32(key), keyAlloc);
-
-  CallInst *call = createMapLookup(map_name,
-                                   keyAlloc,
-                                   "lookup_" + name + "_map");
-  CreateLifetimeEnd(keyAlloc);
-
-  llvm::Function *parent = GetInsertBlock()->getParent();
-  BasicBlock *lookup_failure_block = BasicBlock::Create(
-      module_.getContext(), "lookup_" + name + "_failure", parent);
-  BasicBlock *lookup_merge_block = BasicBlock::Create(
-      module_.getContext(), "lookup_" + name + "_merge", parent);
-  Value *condition = CreateICmpNE(CreateIntCast(call, getPtrTy(), true),
-                                  GetNull(),
-                                  "lookup_" + name + "_cond");
-  CreateCondBr(condition, lookup_merge_block, lookup_failure_block);
-
-  SetInsertPoint(lookup_failure_block);
-  CreateDebugOutput("unable to find the scratch map value for " + name,
-                    std::vector<Value *>{},
-                    loc);
-  if (failure_callback) {
-    CreateBr(failure_callback);
-  } else {
-    // Think of this like an assert(). In practice, we cannot fail to lookup a
-    // percpu array map unless we have a coding error. Rather than have some
-    // kind of complicated fallback path where we provide an error string for
-    // our caller, just indicate to verifier we want to terminate execution.
-    //
-    // Note that we blindly return 0 in contrast to the logic inside
-    // CodegenLLVM::createRet(). That's b/c the return value doesn't matter
-    // if it'll never get executed.
-    CreateRet(getInt64(0));
-  }
-
-  SetInsertPoint(lookup_merge_block);
-  return call;
 }
 
 Value *IRBuilderBPF::CreateMapLookupElem(Map &map,
@@ -1810,10 +1783,14 @@ CallInst *IRBuilderBPF::CreateGetStack(Value *ctx,
                                        const Location &loc)
 {
   int flags = 0;
-  if (!stack_type.kernel)
+  if (!stack_type.kernel) {
     flags |= (1 << 8);
+    if (stack_type.mode == StackMode::build_id) {
+      flags |= (1 << 11);
+    }
+  }
   Value *flags_val = getInt64(flags);
-  Value *stack_size = getInt32(stack_type.limit * sizeof(uint64_t));
+  Value *stack_size = getInt32(stack_type.limit * stack_type.elem_size());
 
   // long bpf_get_stack(void *ctx, void *buf, u32 size, u64 flags)
   // Return: The non-negative copied *buf* length equal to or less than

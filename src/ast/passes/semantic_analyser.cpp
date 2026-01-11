@@ -669,7 +669,6 @@ static bool IsValidVarDeclType(const SizedType &ty)
     case Type::min_t:
     case Type::stats_t:
     case Type::sum_t:
-    case Type::stack_mode:
     case Type::voidtype:
       return false;
     case Type::integer:
@@ -916,8 +915,15 @@ void SemanticAnalyser::visit(Builtin &builtin)
     // For uretprobe -> AddrSpace::user
     builtin.builtin_type.SetAS(find_addrspace(type));
   } else if (builtin.ident == "kstack") {
-    builtin.builtin_type = CreateStack(
-        true, StackType{ .mode = bpftrace_.config_->stack_mode });
+    if (bpftrace_.config_->stack_mode == StackMode::build_id) {
+      builtin.addWarning() << "'build_id' stack mode can only be used for "
+                              "ustack. Falling back to 'raw' mode.";
+      builtin.builtin_type = CreateStack(true,
+                                         StackType{ .mode = StackMode::raw });
+    } else {
+      builtin.builtin_type = CreateStack(
+          true, StackType{ .mode = bpftrace_.config_->stack_mode });
+    }
   } else if (builtin.ident == "ustack") {
     builtin.builtin_type = CreateStack(
         false,
@@ -2039,6 +2045,9 @@ void SemanticAnalyser::check_stack_call(Call &call, bool kernel)
   if (stack_type.limit > MAX_STACK_SIZE) {
     call.addError() << call.func << "([int limit]): limit shouldn't exceed "
                     << MAX_STACK_SIZE << ", " << stack_type.limit << " given";
+  }
+  if (stack_type.mode == StackMode::build_id && kernel) {
+    call.addError() << "'build_id' stack mode can only be used for ustack";
   }
   call.return_type = CreateStack(kernel, stack_type);
 }

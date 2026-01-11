@@ -93,7 +93,6 @@ std::string typestr(const SizedType &type)
     case Type::ksym_t:
     case Type::usym_t:
     case Type::username:
-    case Type::stack_mode:
     case Type::timestamp_mode:
     case Type::cgroup_path_t:
     case Type::hist_t:
@@ -247,7 +246,6 @@ std::string typestr(Type t)
     case Type::usym_t:     return "usym_t";     break;
     case Type::username: return "username"; break;
     case Type::inet:     return "inet";     break;
-    case Type::stack_mode:return "stack_mode";break;
     case Type::array:    return "array";    break;
     case Type::buffer:   return "buffer";   break;
     case Type::tuple:    return "tuple";    break;
@@ -347,11 +345,6 @@ SizedType CreateVoid()
   return { Type::voidtype, 0 };
 }
 
-SizedType CreateStackMode()
-{
-  return { Type::stack_mode, 0 };
-}
-
 SizedType CreateArray(size_t num_elements, const SizedType &element_type)
 {
   size_t size = num_elements * element_type.GetSize();
@@ -401,7 +394,7 @@ SizedType CreateStack(bool kernel, StackType stack)
 {
   // These sizes are based on the stack struct (see
   // IRBuilderBPF::GetStackStructType)
-  auto base_size = (stack.limit * 8) + 8;
+  auto base_size = (stack.limit * stack.elem_size()) + 8;
   auto st = SizedType(kernel ? Type::kstack_t : Type::ustack_t,
                       kernel ? base_size : (base_size + 8));
   st.stack_type = stack;

@@ -205,6 +205,8 @@ public:
   size_t map_key_buffers = 0;
   size_t max_map_key_size = 0;
 
+  size_t join_value_size = 0;
+
   // Async argument metadata that codegen creates. Ideally ResourceAnalyser
   // pass should be collecting this, but it's complex to move the logic.
   //
@@ -216,6 +218,7 @@ public:
   std::map<std::string, MapInfo> maps_info;
   globalvars::GlobalVars global_vars;
   bool using_skboutput = false;
+  bool needs_elapsed_map = false;
 
   // Probe metadata
   //

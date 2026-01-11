@@ -49,7 +49,6 @@
 #include "async_action.h"
 #include "bpfmap.h"
 #include "bpftrace.h"
-#include "codegen_resources.h"
 #include "config.h"
 #include "globalvars.h"
 #include "log.h"
@@ -276,8 +275,7 @@ private:
       const std::string &name,
       const Location &loc);
 
-  void generate_maps(const RequiredResources &required_resources,
-                     const CodegenResources &codegen_resources);
+  void generate_maps(const RequiredResources &required_resources);
   void generate_global_vars(const RequiredResources &resources,
                             const ::bpftrace::Config &bpftrace_config);
 
@@ -588,8 +586,8 @@ ScopedExpr CodegenLLVM::kstack(const SizedType &stype, const Location &loc)
   b_.CreateBr(merge_block);
   b_.SetInsertPoint(get_stack_success);
 
-  const auto uint64_size = sizeof(uint64_t);
-  Value *num_frames = b_.CreateUDiv(stack_size, b_.getInt64(uint64_size));
+  Value *num_frames = b_.CreateUDiv(stack_size,
+                                    b_.getInt64(stype.stack_type.elem_size()));
   b_.CreateStore(num_frames,
                  b_.CreateGEP(stack_struct_type,
                               stack,
@@ -640,8 +638,8 @@ ScopedExpr CodegenLLVM::ustack(const SizedType &stype, const Location &loc)
   b_.CreateBr(merge_block);
   b_.SetInsertPoint(get_stack_success);
 
-  const auto uint64_size = sizeof(uint64_t);
-  Value *num_frames = b_.CreateUDiv(stack_size, b_.getInt64(uint64_size));
+  Value *num_frames = b_.CreateUDiv(stack_size,
+                                    b_.getInt64(stype.stack_type.elem_size()));
   b_.CreateStore(num_frames,
                  b_.CreateGEP(stack_struct_type,
                               stack,
@@ -3862,7 +3860,7 @@ void CodegenLLVM::createJoinCall(Call &call, int id)
   BasicBlock *failure_callback = BasicBlock::Create(module_->getContext(),
                                                     "failure_callback",
                                                     parent);
-  Value *perfdata = b_.CreateGetJoinMap(failure_callback, call.loc);
+  Value *perfdata = b_.CreateJoinAllocation(call.loc);
 
   uint32_t content_size = bpftrace_.join_argnum_ * bpftrace_.join_argsize_;
 
@@ -4022,8 +4020,7 @@ void CodegenLLVM::createMapDefinition(const std::string &name,
 // normally set by libbpf's linker but since we load BTF directly, we must do
 // the fixing ourselves, until we start loading BPF programs via bpf_object.
 // See BpfBytecode::fixupBTF for details.
-void CodegenLLVM::generate_maps(const RequiredResources &required_resources,
-                                const CodegenResources &codegen_resources)
+void CodegenLLVM::generate_maps(const RequiredResources &required_resources)
 {
   // User-defined maps
   for (const auto &[name, info] : required_resources.maps_info) {
@@ -4034,19 +4031,7 @@ void CodegenLLVM::generate_maps(const RequiredResources &required_resources,
   }
 
   // bpftrace internal maps
-
-  if (codegen_resources.needs_join_map) {
-    auto value_size = offsetof(AsyncEvent::Join, content) +
-                      (bpftrace_.join_argnum_ * bpftrace_.join_argsize_);
-    SizedType value_type = CreateArray(value_size, CreateInt8());
-    createMapDefinition(to_string(MapType::Join),
-                        BPF_MAP_TYPE_PERCPU_ARRAY,
-                        1,
-                        CreateUInt32(),
-                        value_type);
-  }
-
-  if (codegen_resources.needs_elapsed_map) {
+  if (required_resources.needs_elapsed_map) {
     createMapDefinition(to_string(MapType::Elapsed),
                         BPF_MAP_TYPE_HASH,
                         1,
@@ -4617,9 +4602,7 @@ GlobalVariable *CodegenLLVM::DeclareKernelVar(const std::string &var_name)
 
 std::unique_ptr<llvm::Module> CodegenLLVM::compile()
 {
-  CodegenResourceAnalyser analyser(*bpftrace_.config_);
-  auto codegen_resources = analyser.analyse(*ast_.root);
-  generate_maps(bpftrace_.resources, codegen_resources);
+  generate_maps(bpftrace_.resources);
   generate_global_vars(bpftrace_.resources, *bpftrace_.config_);
   {
     visit(ast_.root);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <bpf/bpf.h>
 #include <cassert>
 #include <cereal/access.hpp>
 #include <cereal/types/variant.hpp>
@@ -44,7 +45,6 @@ enum class Type : uint8_t {
   usym_t,
   username,
   inet,
-  stack_mode,
   array,
   buffer,
   tuple,
@@ -75,12 +75,14 @@ enum class StackMode : uint8_t {
   bpftrace,
   perf,
   raw,
+  build_id
 };
 
 const std::map<StackMode, std::string> STACK_MODE_NAME_MAP = {
   { StackMode::bpftrace, "bpftrace" },
   { StackMode::perf, "perf" },
   { StackMode::raw, "raw" },
+  { StackMode::build_id, "build_id" },
 };
 
 template <>
@@ -98,7 +100,7 @@ struct ConfigParser<StackMode> {
     }
     return make_error<ParseError>(key,
                                   "Invalid value for stack_mode: valid "
-                                  "values are bpftrace, raw and perf.");
+                                  "values are bpftrace, raw, perf, and build_id.");
   }
   Result<OK> parse(const std::string &key,
                    [[maybe_unused]] StackMode *target,
@@ -106,12 +108,12 @@ struct ConfigParser<StackMode> {
   {
     return make_error<ParseError>(key,
                                   "Invalid value for stack_mode: valid "
-                                  "values are bpftrace, raw and perf.");
+                                  "values are bpftrace, raw, perf, and build_id.");
   }
 };
 
 struct StackType {
-  // N.B. the limit of 127 defines the default stack size.
+  // Defines the default number of stack elements.
   uint16_t limit = 127;
   StackMode mode = StackMode::bpftrace;
   // This is used to construct the name() below,
@@ -122,7 +124,7 @@ struct StackType {
 
   bool operator==(const StackType &obj) const
   {
-    return limit == obj.limit && mode == obj.mode;
+    return limit == obj.limit && mode == obj.mode && kernel == obj.kernel;
   }
 
   std::string name() const
@@ -132,12 +134,18 @@ struct StackType {
            std::to_string(limit);
   }
 
+  size_t elem_size() const {
+    return mode == StackMode::build_id
+                              ? sizeof(bpf_stack_build_id)
+                              : sizeof(uint64_t);
+  }
+
 private:
   friend class cereal::access;
   template <typename Archive>
   void serialize(Archive &archive)
   {
-    archive(limit, mode);
+    archive(limit, mode, kernel);
   }
 };
 
@@ -268,7 +276,7 @@ public:
 
   bool IsPrintableTy() const
   {
-    return type_ != Type::none && type_ != Type::stack_mode &&
+    return type_ != Type::none &&
            type_ != Type::timestamp_mode &&
            (!IsCtxAccess() || is_funcarg); // args builtin is printable
   }
@@ -450,10 +458,6 @@ public:
   {
     return type_ == Type::inet;
   };
-  bool IsStackModeTy() const
-  {
-    return type_ == Type::stack_mode;
-  };
   bool IsArrayTy() const
   {
     return type_ == Type::array;
@@ -557,7 +561,6 @@ SizedType CreateRecord(std::shared_ptr<Struct> &&record);
 SizedType CreateRecord(const std::string &name, std::weak_ptr<Struct> record);
 SizedType CreateTuple(std::shared_ptr<Struct> &&tuple);
 
-SizedType CreateStackMode();
 SizedType CreateStack(bool kernel, StackType st = StackType());
 
 SizedType CreateMin(bool is_signed);
@@ -602,6 +605,8 @@ struct hash<bpftrace::StackType> {
         return std::hash<std::string>()("perf#" + to_string(obj.limit));
       case bpftrace::StackMode::raw:
         return std::hash<std::string>()("raw#" + to_string(obj.limit));
+      case bpftrace::StackMode::build_id:
+        return std::hash<std::string>()("build_id#" + to_string(obj.limit));
     }
 
     return {}; // unreached
